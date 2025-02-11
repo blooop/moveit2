@@ -94,7 +94,7 @@ TrajectoryExecutionManager::~TrajectoryExecutionManager()
 
 void TrajectoryExecutionManager::initialize()
 {
-  verbose_ = false;
+  verbose_ = true;
   execution_complete_ = true;
   current_context_ = -1;
   last_execution_status_ = moveit_controller_manager::ExecutionStatus::SUCCEEDED;
@@ -660,16 +660,24 @@ bool TrajectoryExecutionManager::findControllers(const std::set<std::string>& ac
                 controller_count, sac.str().c_str(), saj.str().c_str(), selected_options.size());
   }
 
+  RCLCPP_INFO(logger_, "findControllers: 0");
+  RCLCPP_INFO(logger_, "selected options %zu", selected_options.size());
   // if none was found, this is a problem
   if (selected_options.empty())
+  {
+    RCLCPP_INFO(logger_, "findControllers: return false:0");
     return false;
+  }
 
+  RCLCPP_INFO(logger_, "findControllers: 1");
   // if only one was found, return it
   if (selected_options.size() == 1)
   {
     selected_controllers.swap(selected_options[0]);
+    RCLCPP_INFO(logger_, "findControllers: return true 0");
     return true;
   }
+  RCLCPP_INFO(logger_, "findControllers: 2");
 
   // if more options were found, evaluate them all and return the best one
 
@@ -743,16 +751,29 @@ bool TrajectoryExecutionManager::selectControllers(const std::set<std::string>& 
                                                    const std::vector<std::string>& available_controllers,
                                                    std::vector<std::string>& selected_controllers)
 {
+  RCLCPP_INFO(logger_, "available_controllers");
+  for (const std::string& controller : available_controllers)
+  {
+    RCLCPP_INFO(logger_, "%s", controller.c_str());
+  }
+  RCLCPP_INFO(logger_, "selected_controllers");
+  for (const std::string& controller : selected_controllers)
+  {
+    RCLCPP_INFO(logger_, "%s", controller.c_str());
+  }
   for (std::size_t i = 1; i <= available_controllers.size(); ++i)
   {
+    RCLCPP_INFO(logger_, "select controllers loop [ %zu]  :0", i);
     if (findControllers(actuated_joints, i, available_controllers, selected_controllers))
     {
+      RCLCPP_INFO(logger_, "select controllers loop [ %zu]  :1", i);
       // if we are not managing controllers, prefer to use active controllers even if there are more of them
       if (!manage_controllers_ && !areControllersActive(selected_controllers))
       {
         std::vector<std::string> other_option;
         for (std::size_t j = i + 1; j <= available_controllers.size(); ++j)
         {
+          RCLCPP_INFO(logger_, "loop [ %zu, %zu]  :1", i, j);
           if (findControllers(actuated_joints, j, available_controllers, other_option))
           {
             if (areControllersActive(other_option))
@@ -1062,19 +1083,26 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
     return false;
   }
 
+  RCLCPP_INFO(logger_, "point 0");
   if (controllers.empty())
   {
+    RCLCPP_INFO(logger_, "point 1");
+    RCLCPP_INFO(logger_, "Controllers are empty");
     bool retry = true;
     bool reloaded = false;
     while (retry)
     {
+      RCLCPP_INFO(logger_, "retry loading controllers");
       retry = false;
       std::vector<std::string> all_controller_names;
       for (std::map<std::string, ControllerInformation>::const_iterator it = known_controllers_.begin();
            it != known_controllers_.end(); ++it)
         all_controller_names.push_back(it->first);
+
+      RCLCPP_INFO(logger_, "point 33");
       if (selectControllers(actuated_joints, all_controller_names, context.controllers_))
       {
+        RCLCPP_INFO(logger_, "retry loading controllers:selected");
         if (distributeTrajectory(trajectory, context.controllers_, context.trajectory_parts_))
           return true;
       }
@@ -1083,6 +1111,7 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
         // maybe we failed because we did not have a complete list of controllers
         if (!reloaded)
         {
+          RCLCPP_INFO(logger_, "retry loading controllers:reloadControllerInformation");
           reloadControllerInformation();
           reloaded = true;
           retry = true;
@@ -1092,6 +1121,8 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
   }
   else
   {
+    RCLCPP_INFO(logger_, "point 2");
+    RCLCPP_INFO(logger_, "before checking specified controller names");
     // check if the specified controllers are valid names;
     // if they appear not to be, try to reload the controller information, just in case they are new in the system
     bool reloaded = false;
@@ -1099,13 +1130,16 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
     {
       if (known_controllers_.find(controller) == known_controllers_.end())
       {
+        RCLCPP_INFO(logger_, "reloadControllerInformation: 1");
         reloadControllerInformation();
         reloaded = true;
         break;
       }
     }
+    RCLCPP_INFO(logger_, "9");
     if (reloaded)
     {
+      RCLCPP_INFO(logger_, "if reloaded");
       for (const std::string& controller : controllers)
       {
         if (known_controllers_.find(controller) == known_controllers_.end())
@@ -1121,12 +1155,17 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
         }
       }
     }
+
+    RCLCPP_INFO(logger_, "10");
     if (selectControllers(actuated_joints, controllers, context.controllers_))
     {
+      RCLCPP_INFO(logger_, "in selected controllers");
       if (distributeTrajectory(trajectory, context.controllers_, context.trajectory_parts_))
         return true;
     }
   }
+
+  RCLCPP_INFO(logger_, "before error");
   std::stringstream ss;
   for (const std::string& actuated_joint : actuated_joints)
     ss << actuated_joint << ' ';
@@ -1145,7 +1184,7 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
       ss2 << "  " << *ji << '\n';
     }
   }
-  RCLCPP_ERROR(logger_, "Known controllers and their joints:\n%s", ss2.str().c_str());
+  RCLCPP_ERROR(logger_, "Known controllers and their joints lol:\n%s", ss2.str().c_str());
 
   if (!trajectory.multi_dof_joint_trajectory.joint_names.empty())
   {
@@ -1684,6 +1723,7 @@ bool TrajectoryExecutionManager::ensureActiveControllersForJoints(const std::vec
     }
   }
 
+  RCLCPP_INFO(logger_, "ensure active controllers for joints");
   if (selectControllers(jset, all_controller_names, selected_controllers))
   {
     return ensureActiveControllers(selected_controllers);
@@ -1766,6 +1806,7 @@ bool TrajectoryExecutionManager::ensureActiveControllers(const std::vector<std::
           possible_additional_controllers.push_back(it->first);
       }
 
+      RCLCPP_INFO(logger_, "ensure active controllers");
       // out of the allowable controllers, try to find a subset of controllers that covers the joints to be actuated
       std::vector<std::string> additional_controllers;
       if (selectControllers(diff, possible_additional_controllers, additional_controllers))
