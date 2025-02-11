@@ -212,6 +212,9 @@ MoveItCpp::execute(const robot_trajectory::RobotTrajectoryPtr& robot_trajectory,
 
   const std::string group_name = robot_trajectory->getGroupName();
 
+  for (const auto& s : controllers)
+    RCLCPP_INFO(logger_, "active controllers '%s'", s.c_str());
+
   // Check if there are controllers that can handle the execution
   if (!trajectory_execution_manager_->ensureActiveControllersForGroup(group_name))
   {

@@ -111,6 +111,7 @@ void initMoveitPy(py::module& m)
              std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor =
                  std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
 
+             RCLCPP_INFO(getLogger(), "OG NODE NAME %s", node->get_name());
              RCLCPP_INFO(getLogger(), "Spin separate thread");
              auto spin_node = [node, executor]() {
                executor->add_node(node);

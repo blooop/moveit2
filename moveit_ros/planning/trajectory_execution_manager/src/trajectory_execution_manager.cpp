@@ -457,13 +457,16 @@ bool TrajectoryExecutionManager::push(const moveit_msgs::msg::RobotTrajectory& t
 
 void TrajectoryExecutionManager::reloadControllerInformation()
 {
+  RCLCPP_INFO(logger_, "realoadcontrollerinformation");
   known_controllers_.clear();
   if (controller_manager_)
   {
+    RCLCPP_INFO(logger_, "controller manager exists");
     std::vector<std::string> names;
     controller_manager_->getControllersList(names);
     for (const std::string& name : names)
     {
+      RCLCPP_INFO(logger_, "controller name: %s", name.c_str());
       std::vector<std::string> joints;
       controller_manager_->getControllerJoints(name, joints);
       ControllerInformation ci;
@@ -1097,7 +1100,10 @@ bool TrajectoryExecutionManager::configure(TrajectoryExecutionContext& context,
       std::vector<std::string> all_controller_names;
       for (std::map<std::string, ControllerInformation>::const_iterator it = known_controllers_.begin();
            it != known_controllers_.end(); ++it)
+      {
+        RCLCPP_INFO(logger_, "known controllers %s", it->first.c_str());
         all_controller_names.push_back(it->first);
+      }
 
       RCLCPP_INFO(logger_, "point 33");
       if (selectControllers(actuated_joints, all_controller_names, context.controllers_))
@@ -1709,7 +1715,11 @@ bool TrajectoryExecutionManager::ensureActiveControllersForJoints(const std::vec
   std::vector<std::string> all_controller_names;
   for (std::map<std::string, ControllerInformation>::const_iterator it = known_controllers_.begin();
        it != known_controllers_.end(); ++it)
+  {
+    RCLCPP_INFO(logger_, "known controller: %s", it->first.c_str());
+
     all_controller_names.push_back(it->first);
+  }
   std::vector<std::string> selected_controllers;
   std::set<std::string> jset;
   for (const std::string& joint : joints)

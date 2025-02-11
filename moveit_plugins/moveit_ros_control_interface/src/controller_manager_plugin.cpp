@@ -549,27 +549,48 @@ class Ros2ControlMultiManager : public moveit_controller_manager::MoveItControll
    */
   void discover()
   {
+    RCLCPP_INFO_STREAM(getLogger(), "enter discover");
     // Skip if last discovery is too new for discovery rate
-    if ((node_->now() - controller_managers_stamp_) < CONTROLLER_INFORMATION_VALIDITY_AGE)
-      return;
+    auto now1 = node_->now();
+    auto delta = now1 - controller_managers_stamp_;
+
+    RCLCPP_INFO_STREAM(getLogger(), "NODE name:" << node_->get_name());
+
+    // for (auto i = 0; i < 1000; i++)
+    // {
+    //   RCLCPP_INFO_STREAM(getLogger(), "i:" << node_->now().seconds() << "ns:" << node_->now().nanoseconds());
+    // }
+    // if (delta < CONTROLLER_INFORMATION_VALIDITY_AGE)
+    // {
+    //   RCLCPP_INFO_STREAM(getLogger(), "now1:" << now1.seconds());
+    //   RCLCPP_INFO_STREAM(getLogger(), "delta:" << delta.seconds());
+    //   RCLCPP_INFO_STREAM(getLogger(), "controller mgr stamp:" << controller_managers_stamp_.seconds());
+    //   RCLCPP_INFO_STREAM(getLogger(), "existing cos age is invalid:" <<
+    //   CONTROLLER_INFORMATION_VALIDITY_AGE.seconds()); return;
+    // }
 
     controller_managers_stamp_ = node_->now();
 
-    const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
-
-    for (const auto& service : services)
+    for (auto i = 0; i < 10; i++)
+    // while(true)
     {
-      const auto& service_name = service.first;
-      std::size_t found = service_name.find("controller_manager/list_controllers");
-      if (found != std::string::npos)
+      const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
+      for (const auto& service : services)
       {
-        std::string ns = service_name.substr(0, found);
-        if (controller_managers_.find(ns) == controller_managers_.end())
-        {  // create Ros2ControlManager if it does not exist
-          RCLCPP_INFO_STREAM(getLogger(), "Adding controller_manager interface for node at namespace " << ns);
-          auto controller_manager = std::make_shared<moveit_ros_control_interface::Ros2ControlManager>(ns);
-          controller_manager->initialize(node_);
-          controller_managers_.insert(std::make_pair(ns, controller_manager));
+        const auto& service_name = service.first;
+
+        RCLCPP_INFO_STREAM(getLogger(), "service name:" << service_name);
+        std::size_t found = service_name.find("controller_manager/list_controllers");
+        if (found != std::string::npos)
+        {
+          std::string ns = service_name.substr(0, found);
+          if (controller_managers_.find(ns) == controller_managers_.end())
+          {  // create Ros2ControlManager if it does not exist
+            RCLCPP_INFO_STREAM(getLogger(), "Adding controller_manager interface for node at namespace " << ns);
+            auto controller_manager = std::make_shared<moveit_ros_control_interface::Ros2ControlManager>(ns);
+            controller_manager->initialize(node_);
+            controller_managers_.insert(std::make_pair(ns, controller_manager));
+          }
         }
       }
     }
