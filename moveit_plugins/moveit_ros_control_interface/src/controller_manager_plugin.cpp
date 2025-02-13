@@ -542,6 +542,28 @@ class Ros2ControlMultiManager : public moveit_controller_manager::MoveItControll
   void initialize(const rclcpp::Node::SharedPtr& node) override
   {
     node_ = node;
+    // HACKS!!!! This is to work around the fact the discover() some times fails to find the controller services, so
+    // just make sure they are available before trying to discover()
+    node_->declare_parameter<int>("controller_manager_wait_count", 100);
+    int controller_manager_wait_count = node_->get_parameter("controller_manager_wait_count").as_int();
+    bool manager_found = false;
+    for (int i = 0; i < controller_manager_wait_count; i++)
+    {
+      RCLCPP_INFO_STREAM(getLogger(), "waiting for controller_manager/list_controllers: " << i);
+      const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
+      for (const auto& service : services)
+      {
+        const auto& service_name = service.first;
+        std::size_t found = service_name.find("controller_manager/list_controllers");
+        if (found != std::string::npos)
+        {
+          manager_found = true;
+          break;  // the service is working so exit
+        }
+      }
+      if (manager_found)
+        break;
+    }
   }
   /**
    * \brief  Poll for services and filter all controller_manager/list_controllers instances
