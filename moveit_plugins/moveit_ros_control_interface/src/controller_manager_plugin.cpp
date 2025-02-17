@@ -57,7 +57,7 @@
 #include <moveit/utils/logger.hpp>
 
 static const rclcpp::Duration CONTROLLER_INFORMATION_VALIDITY_AGE = rclcpp::Duration::from_seconds(1.0);
-static const double SERVICE_CALL_TIMEOUT = 1.0;
+static const double SERVICE_CALL_TIMEOUT = 5.0;
 
 namespace moveit_ros_control_interface
 {
@@ -539,32 +539,80 @@ class Ros2ControlMultiManager : public moveit_controller_manager::MoveItControll
 
   rclcpp::Node::SharedPtr node_;
 
+private:
   void initialize(const rclcpp::Node::SharedPtr& node) override
   {
     node_ = node;
-    // HACKS!!!! This is to work around the fact the discover() some times fails to find the controller services, so
-    // just make sure they are available before trying to discover()
-    node_->declare_parameter<int>("controller_manager_wait_count", 100);
-    int controller_manager_wait_count = node_->get_parameter("controller_manager_wait_count").as_int();
-    bool manager_found = false;
-    for (int i = 0; i < controller_manager_wait_count; i++)
+
+    // Define required controller managers and their namespaces
+    std::map<std::string, std::string> required_managers = { { "arm_controller",
+                                                               "" },  // Empty string for root namespace
+                                                                      //  { "head_controller", "/head_ns" },
+                                                             { "left_gripper_controller", "/gripper_ns" } };
+
+    RCLCPP_INFO(getLogger(), "waiting for controller managers...");
+    if (!wait_for_controller_managers(required_managers))
     {
-      RCLCPP_INFO_STREAM(getLogger(), "waiting for controller_manager/list_controllers: " << i);
-      const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
-      for (const auto& service : services)
-      {
-        const auto& service_name = service.first;
-        std::size_t found = service_name.find("controller_manager/list_controllers");
-        if (found != std::string::npos)
-        {
-          manager_found = true;
-          break;  // the service is working so exit
-        }
-      }
-      if (manager_found)
-        break;
+      RCLCPP_ERROR(getLogger(), "Failed to find all required controller managers");
+      return;
     }
   }
+
+  bool wait_for_controller_managers(const std::map<std::string, std::string>& required_managers)
+  {
+    node_->declare_parameter<double>("controller_manager_timeout", 10.0);  // Default 10 second timeout
+    double timeout_seconds = node_->get_parameter("controller_manager_timeout").as_double();
+    bool all_managers_found = false;
+
+    auto start_time = node_->now();
+    while ((node_->now() - start_time).seconds() < timeout_seconds)
+    {
+      all_managers_found = true;  // Reset for each check
+      for (const auto& [controller_name, namespace_str] : required_managers)
+      {
+        std::string service_name = namespace_str + "/controller_manager/list_controllers";
+
+        const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
+        bool manager_found = false;
+        for (const auto& service : services)
+        {
+          if (service.first == service_name)
+          {
+            manager_found = true;
+            break;
+          }
+        }
+
+        if (!manager_found)
+        {
+          RCLCPP_DEBUG_STREAM(getLogger(), "Waiting for controller manager: " << service_name);
+          all_managers_found = false;
+          break;
+        }
+      }
+
+      if (all_managers_found)
+      {
+        RCLCPP_INFO_STREAM(getLogger(), "All required controller managers found");
+        for (const auto& [controller_name, namespace_str] : required_managers)
+        {
+          RCLCPP_INFO_STREAM(getLogger(), controller_name << ":" << namespace_str.c_str());
+        }
+        return true;
+      }
+
+      RCLCPP_INFO_STREAM(getLogger(),
+                         "Waiting for controller managers: " << (node_->now() - start_time).seconds() << "s");
+      rclcpp::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (!all_managers_found)
+    {
+      RCLCPP_ERROR_STREAM(getLogger(), "Not all controller managers found after " << timeout_seconds << " seconds");
+    }
+    return all_managers_found;
+  }
+
   /**
    * \brief  Poll for services and filter all controller_manager/list_controllers instances
    * Throttled down to 1 Hz, controller_managers_mutex_ must be locked externally
@@ -573,46 +621,29 @@ class Ros2ControlMultiManager : public moveit_controller_manager::MoveItControll
   {
     RCLCPP_INFO_STREAM(getLogger(), "enter discover");
     // Skip if last discovery is too new for discovery rate
-    auto now1 = node_->now();
-    auto delta = now1 - controller_managers_stamp_;
-
-    RCLCPP_INFO_STREAM(getLogger(), "NODE name:" << node_->get_name());
-
-    // for (auto i = 0; i < 1000; i++)
-    // {
-    //   RCLCPP_INFO_STREAM(getLogger(), "i:" << node_->now().seconds() << "ns:" << node_->now().nanoseconds());
-    // }
-    // if (delta < CONTROLLER_INFORMATION_VALIDITY_AGE)
-    // {
-    //   RCLCPP_INFO_STREAM(getLogger(), "now1:" << now1.seconds());
-    //   RCLCPP_INFO_STREAM(getLogger(), "delta:" << delta.seconds());
-    //   RCLCPP_INFO_STREAM(getLogger(), "controller mgr stamp:" << controller_managers_stamp_.seconds());
-    //   RCLCPP_INFO_STREAM(getLogger(), "existing cos age is invalid:" <<
-    //   CONTROLLER_INFORMATION_VALIDITY_AGE.seconds()); return;
-    // }
+    if ((node_->now() - controller_managers_stamp_) < CONTROLLER_INFORMATION_VALIDITY_AGE)
+    {
+      RCLCPP_INFO_STREAM(getLogger(), "exiting cos age is invalid:" << CONTROLLER_INFORMATION_VALIDITY_AGE.seconds());
+      return;
+    }
 
     controller_managers_stamp_ = node_->now();
 
-    for (auto i = 0; i < 10; i++)
-    // while(true)
-    {
-      const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
-      for (const auto& service : services)
-      {
-        const auto& service_name = service.first;
+    const std::map<std::string, std::vector<std::string>> services = node_->get_service_names_and_types();
 
-        RCLCPP_INFO_STREAM(getLogger(), "service name:" << service_name);
-        std::size_t found = service_name.find("controller_manager/list_controllers");
-        if (found != std::string::npos)
-        {
-          std::string ns = service_name.substr(0, found);
-          if (controller_managers_.find(ns) == controller_managers_.end())
-          {  // create Ros2ControlManager if it does not exist
-            RCLCPP_INFO_STREAM(getLogger(), "Adding controller_manager interface for node at namespace " << ns);
-            auto controller_manager = std::make_shared<moveit_ros_control_interface::Ros2ControlManager>(ns);
-            controller_manager->initialize(node_);
-            controller_managers_.insert(std::make_pair(ns, controller_manager));
-          }
+    for (const auto& service : services)
+    {
+      const auto& service_name = service.first;
+      std::size_t found = service_name.find("controller_manager/list_controllers");
+      if (found != std::string::npos)
+      {
+        std::string ns = service_name.substr(0, found);
+        if (controller_managers_.find(ns) == controller_managers_.end())
+        {  // create Ros2ControlManager if it does not exist
+          RCLCPP_INFO_STREAM(getLogger(), "Adding controller_manager interface for node at namespace " << ns);
+          auto controller_manager = std::make_shared<moveit_ros_control_interface::Ros2ControlManager>(ns);
+          controller_manager->initialize(node_);
+          controller_managers_.insert(std::make_pair(ns, controller_manager));
         }
       }
     }
